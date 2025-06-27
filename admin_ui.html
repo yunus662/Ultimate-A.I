@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JARVIS Admin UI</title>
+  <style>
+    :root {
+      --bg: #1f1f23;
+      --fg: #e1e1e6;
+      --accent: #8ab4f8;
+      --accent-dark: #6190e8;
+      --border: #323238;
+      --font: 'Segoe UI', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      display: grid;
+      grid-template-rows: 56px 1fr auto;
+      grid-template-columns: 1fr 300px;
+      grid-template-areas:
+        "header header"
+        "chat monitor"
+        "input monitor";
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font);
+      height: 100vh;
+    }
+    header {
+      grid-area: header;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+    }
+    header h1 {
+      font-size: 1.1rem;
+      color: var(--bg);
+    }
+    header button {
+      background: var(--bg);
+      color: var(--accent);
+      border: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    #chat-window {
+      grid-area: chat;
+      padding: 16px;
+      overflow-y: auto;
+      border-right: 1px solid var(--border);
+    }
+    .message {
+      margin-bottom: 12px;
+      max-width: 80%;
+      line-height: 1.4;
+      padding: 8px 12px;
+      border-radius: 8px;
+      position: relative;
+    }
+    .message.user {
+      background: #2a2a2f;
+      margin-left: auto;
+    }
+    .message.ai {
+      background: #323238;
+      margin-right: auto;
+    }
+    #monitoring-panel {
+      grid-area: monitor;
+      padding: 16px;
+      font-size: 0.85rem;
+      overflow-y: auto;
+      border-left: 1px solid var(--border);
+    }
+    #input-area {
+      grid-area: input;
+      display: flex;
+      align-items: center;
+      padding: 8px 16px;
+      border-top: 1px solid var(--border);
+      background: #2a2a2f;
+    }
+    #chat-input {
+      flex: 1;
+      resize: none;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      margin-right: 8px;
+      background: #1e1e20;
+      color: var(--fg);
+    }
+    #input-area button {
+      background: var(--accent);
+      border: none;
+      color: var(--bg);
+      padding: 8px 12px;
+      margin-left: 4px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    #input-area button#mic {
+      background: transparent;
+      color: var(--accent);
+      font-size: 1.2rem;
+    }
+    #file-input {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>JARVIS Admin UI</h1>
+    <div>
+      <button id="connect-github">Connect GitHub</button>
+      <button id="self-update-btn">Update AI</button>
+    </div>
+  </header>
+
+  <div id="chat-window"></div>
+
+  <div id="monitoring-panel">
+    <h2>Monitoring Feed</h2>
+    <div id="logs"></div>
+  </div>
+
+  <div id="input-area">
+    <textarea id="chat-input" rows="1" placeholder="Ask JARVIS…"></textarea>
+    <button id="mic">🎤</button>
+    <button id="send">Send</button>
+    <button id="upload-btn">📎</button>
+    <input type="file" id="file-input" />
+  </div>
+
+  <script>
+    const chatWin = document.getElementById('chat-window');
+    const logsDiv = document.getElementById('logs');
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send');
+    const micBtn = document.getElementById('mic');
+    const uploadBtn = document.getElementById('upload-btn');
+    const fileInput = document.getElementById('file-input');
+    const connectGit = document.getElementById('connect-github');
+    const selfUpdateBtn = document.getElementById('self-update-btn');
+
+    // --- SSE Monitoring ---
+    const evtSource = new EventSource('/api/monitor');
+    evtSource.onmessage = e => {
+      const p = document.createElement('p');
+      p.textContent = e.data;
+      logsDiv.appendChild(p);
+      logsDiv.scrollTop = logsDiv.scrollHeight;
+    };
+
+    // --- Chat helpers ---
+    function appendMessage(who, text){
+      const msg = document.createElement('div');
+      msg.className = `message ${who}`;
+      msg.textContent = text;
+      chatWin.appendChild(msg);
+      chatWin.scrollTop = chatWin.scrollHeight;
+    }
+
+    async function sendChat(content, extras={}){
+      appendMessage('user', content);
+      const res = await fetch('/api/chat', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({message:content,...extras})
+      });
+      const data = await res.json();
+
+      if(data.upgrade_required){
+        appendMessage('ai','🛠️ Task unknown. Verifying legality & upgrading AI…');
+        await fetch('/api/self_update',{method:'POST'});
+        appendMessage('ai','✅ AI upgraded. Re-running your request…');
+        return sendChat(content,extras);
+      }
+
+      appendMessage('ai', data.reply);
+    }
+
+    sendBtn.onclick = ()=> {
+      if(input.value.trim()) sendChat(input.value.trim());
+      input.value = '';
+    };
+
+    // --- Mic & SpeechRecognition ---
+    let recog;
+    if(window.SpeechRecognition || window.webkitSpeechRecognition){
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recog = new SR();
+      recog.continuous = false;
+      recog.onresult = e => {
+        input.value = e.results[0][0].transcript;
+        sendChat(input.value);
+        input.value = '';
+      };
+    }
+    micBtn.onclick = ()=> recog && recog.start();
+
+    // --- File Upload for Multi-Modal Input ---
+    uploadBtn.onclick = ()=> fileInput.click();
+    fileInput.onchange = async ()=>{
+      const file = fileInput.files[0];
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/upload', {method:'POST', body:fd});
+      const data = await res.json();
+      appendMessage('user', `📎 Sent ${file.name}`);
+      appendMessage('ai', data.reply);
+      fileInput.value = null;
+    };
+
+    // --- GitHub OAuth & Self-Update Hooks ---
+    connectGit.onclick = ()=> {
+      window.location.href = '/auth/github'; 
+    };
+    selfUpdateBtn.onclick = async ()=> {
+      appendMessage('ai','🛠️ Triggering manual AI update…');
+      await fetch('/api/self_update',{method:'POST'});
+      appendMessage('ai','✅ Update complete.');
+    };
+
+    // allow Enter to send
+    input.addEventListener('keydown', e=>{
+      if(e.key==='Enter' && !e.shiftKey){
+        e.preventDefault();
+        sendBtn.click();
+      }
+    });
+  </script>
+</body>
+</html>
