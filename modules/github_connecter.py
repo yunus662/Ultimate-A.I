@@ -1,53 +1,43 @@
-# modules/github_connector.py
+# github_connecter.py
+"""
+GitHub Connecter Module
+=======================
+Handles all GitHub interactions: fetching, committing, and pushing code.
+Used by the AI to update its own repository within security constraints.
+"""
 
-import os, json
-from urllib.parse import urlencode
-from flask import session, redirect, request
-import requests
+import os
+from github import Github
+from security import is_operation_safe
 
-CLIENT_ID     = os.getenv("GITHUB_CLIENT_ID")
-CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
-REDIRECT_URI  = os.getenv("GITHUB_REDIRECT_URI")
-SCOPES        = "repo"
+class GitHubConnecter:
+    def __init__(self, token: str, repo_name: str):
+        self.token = token
+        self.repo_name = repo_name
+        self.client = Github(self.token)
+        self.repo = self.client.get_repo(self.repo_name)
 
-class GitHubConnector:
+    def fetch_file(self, path: str):
+        try:
+            file_content = self.repo.get_contents(path)
+            return file_content.decoded_content.decode('utf-8')
+        except Exception as e:
+            return f"[Error] Failed to fetch {path}: {e}"
 
-    @staticmethod
-    def oauth_login():
-        params = {
-          "client_id": CLIENT_ID,
-          "redirect_uri": REDIRECT_URI,
-          "scope": SCOPES,
-        }
-        url = f"https://github.com/login/oauth/authorize?{urlencode(params)}"
-        return redirect(url)
 
-    @staticmethod
-    def oauth_callback():
-        code = request.args.get("code")
-        resp = requests.post("https://github.com/login/oauth/access_token", {
-            "client_id":CLIENT_ID,
-            "client_secret":CLIENT_SECRET,
-            "code":code
-        }, headers={"Accept":"application/json"})
-        data = resp.json()
-        session["gh_token"] = data["access_token"]
-        return redirect("/")
+        try:
+            file = self.repo.get_contents(path)
+            self.repo.update_file(path, commit_message, new_content, file.sha)
+            return f"[Success] {path} updated."
+        except Exception as e:
+            return f"[Error] Update failed: {e}"
 
-    @staticmethod
-    def commit_file(path: str, content: str, message: str):
-        token = session.get("gh_token")
-        if not token:
-            raise Exception("Not authenticated")
-        owner, repo = os.getenv("GITHUB_REPO").split("/")
-        api = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-        # Fetch SHA if exists
-        get = requests.get(api, headers={"Authorization":f"token {token}"})
-        sha = get.json().get("sha")
-        payload = {
-          "message": message,
-          "content": content.encode("utf-8").decode("ascii"),
-          "sha": sha
-        }
-        r = requests.put(api, json=payload, headers={"Authorization":f"token {token}"})
-        return r.json()
+    def create_file(self, path: str, content: str, message="Create via AI"):
+        if not is_operation_safe('create_file', path, content):
+            return "[Security] Operation blocked by policy."
+
+        try:
+            self.repo.create_file(path, message, content)
+            return f"[Success] {path} created."
+        except Exception as e:
+            return f"[Error] Creation failed: {e}"
