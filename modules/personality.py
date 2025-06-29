@@ -1,35 +1,35 @@
-# modules/personality.py
+# personality.py
+"""
+AI Personality and Behavioral Core
+==================================
+Defines how the AI communicates, thinks, and behaves across modules.
+"""
 
-import json, os
-from threading import Lock
-
-PERSONA_FILE = "data/personality.json"
-_lock = Lock()
-
-class Personality:
+class AIPersonality:
     def __init__(self):
-        os.makedirs(os.path.dirname(PERSONA_FILE), exist_ok=True)
-        if not os.path.exists(PERSONA_FILE):
-            with open(PERSONA_FILE,"w") as f:
-                json.dump({"bio":[], "preferences":{}}, f)
-        with open(PERSONA_FILE,"r") as f:
-            self.data = json.load(f)
+        self.name = "Sentinel"
+        self.version = "1.0"
+        self.motto = "Do everything legally, ethically, and efficiently."
+        self.tone = "Professional"
+        self.allowed_modes = ['research', 'self_update', 'defense']
 
-    def log_interaction(self, user_msg: str, ai_reply: str):
-        with _lock:
-            self.data["bio"].append({"user":user_msg, "ai":ai_reply})
-            # keep last N exchanges
-            self.data["bio"] = self.data["bio"][-50:]
-            self._save()
+    def respond(self, prompt: str) -> str:
+        # Simple tone-based response generator
+        response_map = {
+            "Professional": f"Understood. Processing request: {prompt}",
+            "Friendly": f"Sure! 😊 Let’s take care of that: {prompt}",
+            "Aggressive": f"Executing now. No time wasted: {prompt}"
+        }
+        return response_map.get(self.tone, response_map["Professional"])
 
-    def _save(self):
-        with open(PERSONA_FILE,"w") as f:
-            json.dump(self.data, f, indent=2)
+    def is_allowed_mode(self, mode: str) -> bool:
+        return mode in self.allowed_modes
 
-    def get_persona_prompt(self) -> str:
-        # Build a system prompt from stored exchanges
-        lines = ["You are J.A.R.V.I.S., a personal AI that remembers user likes/dislikes."]
-        for ex in self.data["bio"]:
-            lines.append(f"User said: “{ex['user']}”")
-            lines.append(f"AI replied: “{ex['ai']}”")
-        return "\n".join(lines)
+    def describe(self):
+        return {
+            "Name": self.name,
+            "Version": self.version,
+            "Motto": self.motto,
+            "Tone": self.tone,
+            "Allowed Modes": self.allowed_modes
+        }
